@@ -15,7 +15,18 @@
     #define M_PI 3.14159265358979323846264338327950288
 #endif
 
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 64
+//static const short Qtable[BLOCK_SIZE] = {
+//    17,  18,  18,  24,  21,  24,  26,  26,
+//    47,  47,  56,  66,  66,  99,  99,  99,
+//    99,  99,  99,  99,  99,  99,  99,  99,
+//    99,  99,  99,  99,  99,  99,  99,  99,
+//    99,  99,  99,  99,  99,  99,  99,  99,
+//    99,  99,  99,  99,  99,  99,  99,  99,
+//    99,  99,  99,  99,  99,  99,  99,  99,
+//    99,  99,  99,  99,  99,  99,  99,  99
+//};
+static const short Qtable[BLOCK_SIZE] = {3,	3,	3,	3,	3,	4,	4,	4,	4,	4,	4,	4,	5,	5,	6,	6,	6,	6,	6,	7,	7,	9,	9,	10,	10,	12,	13,	13,	14,	14,	14,	14,	14,	15,	15,	15,	16,	16,	16,	17,	17,	18,	19,	20,	20,	20,	22,	22,	23,	23,	24,	25,	25,	25,	25,	26,	26,	26,	26,	27,	28,	28,	30,	30};
 
 static long current_sample_in = 0;
 static long current_sample_out = 0;
@@ -42,15 +53,15 @@ long readTextFile(char path[], short *samples){
 long writeTextFile(char path[], const short *samples, unsigned long length){
     
     FILE *fd = NULL;
-    fd = fopen(path, "w+");
+    fd = fopen(path, "w");
     
     if(fd == NULL){         //the file could be opened.
         return -1;
     }
     
     unsigned long i = 0;
-    while(i < length);
-    fprintf(fd, "%hd", *(samples + i++));
+    while(i < length)
+        fprintf(fd, "%hd\n", *(samples + i++));
     
     fclose(fd);
     
@@ -86,17 +97,17 @@ void printBlock(short *block){
     return;}
 
 //===============================================================================================================
-void quantizeBlock(short *block){
+void compressRange(short *block, unsigned factor){
     unsigned int i = 0;
     for(;i < BLOCK_SIZE; i++)
-        block[i] = block[i] >> 1;
+        block[i] = block[i] >> factor;
     
     return;}
 //---------------------------------------------------------------------------------------------------------------
-void invQuantizeBlock(short *block){
+void decompressRange(short *block, unsigned factor){
     unsigned int i = 0;
     for(;i < BLOCK_SIZE; i++)
-        block[i] = block[i] << 1;
+        block[i] = block[i] << factor;
     
     return;}
 //===============================================================================================================
@@ -177,14 +188,30 @@ void applyOpBlock(short *block1, const short *block2, short (*op) (short, short)
     for(;i < BLOCK_SIZE; ++i)
         block1[i] = op(block1[i], block2[i]);
 }
+
+//===============================================================================================================
+void quantize_block ( short *p_coef ){
+    int i;
+    for ( i = 0; i < BLOCK_SIZE; i++ )
+            p_coef[i] = ( short ) round ( (double)p_coef[i] / Qtable[i] );
+}
+//---------------------------------------------------------------------------------------------------------------
+void inverse_quantize_block ( short *p_coef ){
+    int i;
+    for ( i = 0; i < BLOCK_SIZE; i++ )
+            p_coef[i] = (short) (  p_coef[i] * Qtable[i] );
+}
+
 //===============================================================================================================
 int main(int argc, const char * argv[]) {
     
-    char path[] = "/Users/artemlenskiy/Documents/Research/Matlab/HRVformHWsensor/finger pulse.txt";
+    char pulse_path[] = "/Users/artemlenskiy/Documents/Research/Matlab/HRVformHWsensor/finger pulse.txt";
+    char decompressed_path[] = "/Users/artemlenskiy/Documents/Research/Matlab/HRVformHWsensor/finger pulse_.txt";
     
-    short *samples = (short *)malloc(1e6 * sizeof(short)); //Allocted memory to store 1 million of samples of size short
+    short *samples = (short *)malloc(1e5 * sizeof(short)); //Allocted memory to store .1 million of samples of size short
+    short *samples_save = (short *)malloc(1e5 * sizeof(short)); //Allocted memory to store .1 million of samples of size short
     
-    if(readTextFile(path, samples) < 0){
+    if(readTextFile(pulse_path, samples) < 0){
         puts("Couldn't read file");
         return -1;
     }
@@ -200,14 +227,23 @@ int main(int argc, const char * argv[]) {
         n_samplesInBlock = getBlock(samples, block);
         memcpy(tempBlock, block, BLOCK_SIZE * sizeof(short));
         //printBlock(tempBlock);
-        quantizeBlock(tempBlock);
+        compressRange(tempBlock, 0);
         dct(tempBlock, dctBlock);
+        quantize_block(dctBlock);
         //printBlock(dctBlock);
+        inverse_quantize_block(dctBlock);
         idct(dctBlock, reconBlock);
-        invQuantizeBlock(reconBlock);
+        decompressRange(reconBlock, 0);
         applyOpBlock(block, reconBlock, sub);
+        n_samplesInBlock = putBlock(samples_save, reconBlock);
         printBlock(block);
     }while(n_samplesInBlock != 0);
+    
+    
+    if(writeTextFile(decompressed_path, samples_save, total_n_samples) < 0){
+        puts("Couldn't read file");
+        return -1;
+    }
     
     free(reconBlock);
     free(dctBlock);
